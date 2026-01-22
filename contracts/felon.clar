@@ -20,7 +20,11 @@
 
 (define-map stakes
   { staker: principal }
-  { amount: u128, reward-debt: u128, staked-at-block: uint }
+  {
+    amount: u128,
+    reward-debt: u128,
+    staked-at-block: uint
+  }
 )
 
 (define-private (get-owner) (unwrap-panic (var-get owner)))
