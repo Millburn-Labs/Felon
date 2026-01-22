@@ -1,6 +1,4 @@
-;; Felon - Decentralized STX Staking Platform
-;; Users stake STX and earn rewards proportionally
-
+;; Felon staking - stake STX, earn rewards
 (define-constant err-owner-only (err u100))
 (define-constant err-staking-paused (err u101))
 (define-constant err-below-min (err u102))
@@ -20,12 +18,11 @@
 (define-data-var staking-paused bool false)
 (define-data-var owner (optional principal) none)
 
-(define-map stakes { staker: principal } { amount: u128, reward-debt: u128 })
-(define-map stake-blocks { staker: principal } uint)
+(define-map stakes (tuple (staker principal)) (tuple (amount u128) (reward-debt u128) (staked-at-block uint)))
 
 (define-private (get-owner) (unwrap-panic (var-get owner)))
 
-(define-private (zero-stake) { amount: u0, reward-debt: u0 })
+(define-private (zero-stake) { amount: u0, reward-debt: u0, staked-at-block: block-height })
 
 (define-private (update-reward-per-share (new-rewards u128))
   (let ((total (var-get total-staked)))
@@ -65,13 +62,11 @@
     (let ((entry (map-get? stakes { staker: caller })))
       (let ((cur (default-to (zero-stake) entry)))
         (let ((pending (pending-rewards caller))
-              (new-amount (+ (+ (get amount cur) amount) pending))
-              (staked-at (default-to block-height (map-get? stake-blocks { staker: caller }))))
+              (new-amount (+ (+ (get amount cur) amount) pending)))
           (var-set total-staked (+ (- (var-get total-staked) (get amount cur)) new-amount))
           (map-set stakes { staker: caller }
-            { amount: new-amount, reward-debt: (/ (* new-amount (var-get reward-per-share)) scale) }
+            { amount: new-amount, reward-debt: (/ (* new-amount (var-get reward-per-share)) scale), staked-at-block: (get staked-at-block cur) }
           )
-          (map-set stake-blocks { staker: caller } staked-at)
           (ok true)
         )
       )
@@ -86,29 +81,21 @@
     (let ((entry (map-get? stakes { staker: caller })))
       (asserts! (is-some entry) err-insufficient-stake)
       (let ((info (unwrap-panic entry)))
-        (let ((blk (map-get? stake-blocks { staker: caller })))
-          (asserts! (is-some blk) err-insufficient-stake)
-          (let ((user-amt (get amount info)) (staked-at (unwrap-panic blk)))
-            (asserts! (>= user-amt amount) err-insufficient-stake)
-            (asserts! (>= block-height (+ staked-at lock-period)) err-lock-not-expired)
-            (let ((pending (pending-rewards caller)))
-              (if (> pending u0) (try! (as-contract (stx-transfer? pending (tx-sender) caller))) (ok u0))
-            )
-            (let ((new-amount (- user-amt amount)))
-              (var-set total-staked (- (var-get total-staked) amount))
-              (if (<= new-amount u0)
-                (let ()
-                  (map-delete stakes { staker: caller })
-                  (map-delete stake-blocks { staker: caller }))
-                (let ()
-                  (map-set stakes { staker: caller }
-                    { amount: new-amount, reward-debt: (/ (* new-amount (var-get reward-per-share)) scale) }
-                  )
-                  (map-set stake-blocks { staker: caller } block-height))
+        (let ((user-amt (get amount info)) (staked-at (get staked-at-block info)))
+          (asserts! (>= user-amt amount) err-insufficient-stake)
+          (asserts! (>= block-height (+ staked-at lock-period)) err-lock-not-expired)
+          (let ((pending (pending-rewards caller)))
+            (if (> pending u0) (try! (as-contract (stx-transfer? pending (tx-sender) caller))) (ok u0))
+          )
+          (let ((new-amount (- user-amt amount)))
+            (var-set total-staked (- (var-get total-staked) amount))
+            (if (<= new-amount u0) (map-delete stakes { staker: caller })
+              (map-set stakes { staker: caller }
+                { amount: new-amount, reward-debt: (/ (* new-amount (var-get reward-per-share)) scale), staked-at-block: block-height }
               )
-              (try! (as-contract (stx-transfer? amount (tx-sender) caller)))
-              (ok true)
             )
+            (try! (as-contract (stx-transfer? amount (tx-sender) caller)))
+            (ok true)
           )
         )
       )
@@ -124,7 +111,7 @@
         (asserts! (is-some entry) err-no-rewards)
         (let ((info (unwrap-panic entry)))
           (map-set stakes { staker: caller }
-            { amount: (get amount info), reward-debt: (/ (* (get amount info) (var-get reward-per-share)) scale) }
+            { amount: (get amount info), reward-debt: (/ (* (get amount info) (var-get reward-per-share)) scale), staked-at-block: (get staked-at-block info) }
           )
           (as-contract (stx-transfer? pending (tx-sender) caller))
         )
