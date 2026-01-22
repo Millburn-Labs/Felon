@@ -18,7 +18,8 @@
 (define-data-var staking-paused bool false)
 (define-data-var owner (optional principal) none)
 
-(define-map stakes (tuple (staker principal)) (tuple (amount u128) (reward-debt u128) (staked-at-block uint)))
+(define-type stake-data (tuple (amount u128) (reward-debt u128) (staked-at-block uint)))
+(define-map stakes (tuple (staker principal)) stake-data)
 (define-private (get-owner) (unwrap-panic (var-get owner)))
 
 (define-private (update-reward-per-share (new-rewards u128))
