@@ -18,11 +18,8 @@
 (define-data-var staking-paused bool false)
 (define-data-var owner (optional principal) none)
 
-(define-map stakes (tuple (staker principal)) (tuple (amount u128) (reward-debt u128) (staked-at-block uint)))
-
+(define-map stakes { staker: principal } { amount: u128 })
 (define-private (get-owner) (unwrap-panic (var-get owner)))
-
-(define-private (zero-stake) { amount: u0, reward-debt: u0, staked-at-block: block-height })
 
 (define-private (update-reward-per-share (new-rewards u128))
   (let ((total (var-get total-staked)))
@@ -59,8 +56,9 @@
     (asserts! (not (var-get staking-paused)) err-staking-paused)
     (asserts! (>= amount min-stake-amount) err-below-min)
     (asserts! (> amount u0) err-zero-amount)
-    (let ((entry (map-get? stakes { staker: caller })))
-      (let ((cur (default-to (zero-stake) entry)))
+    (let ((entry (map-get? stakes { staker: caller }))
+          (def (tuple (amount u0) (reward-debt u0) (staked-at-block block-height))))
+      (let ((cur (default-to def entry)))
         (let ((pending (pending-rewards caller))
               (new-amount (+ (+ (get amount cur) amount) pending)))
           (var-set total-staked (+ (- (var-get total-staked) (get amount cur)) new-amount))
